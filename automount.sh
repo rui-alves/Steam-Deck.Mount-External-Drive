@@ -1,9 +1,16 @@
+```bash
 #!/bin/bash
 
 set -euo pipefail
 
 # Originally from https://serverfault.com/a/767079
-
+#
+# Changes made for non-SteamDeck distros (e.g., CachyOS):
+# - Replaced hardcoded user "deck" and /home/deck assumptions with SDMED_UID/SDMED_USER/SDMED_HOME (defaults to UID 1000),
+#   so udisks mounts + ownership target the real user on the system.
+# - Added STEAM_BIN auto-detection (Arch/CachyOS often uses ~/.local/share/Steam) so steam:// commands are sent correctly
+#   without relying on "./.steam/..." relative paths.
+#
 # This script is called from our systemd unit file to mount or unmount
 # a USB drive.
 
@@ -20,6 +27,25 @@ fi
 ACTION=$1
 DEVBASE=$2
 DEVICE="/dev/${DEVBASE}"
+
+# --- minimal: make target user configurable (default: UID 1000) ---
+SDMED_UID="${SDMED_UID:-1000}"
+SDMED_USER="${SDMED_USER:-$(getent passwd "$SDMED_UID" | cut -d: -f1)}"
+SDMED_HOME="${SDMED_HOME:-$(getent passwd "$SDMED_UID" | cut -d: -f6)}"
+
+# Find Steam binary.
+# Steam Deck uses ~/.steam/root/..., but Arch/CachyOS commonly uses ~/.local/share/Steam/...
+STEAM_BIN="${STEAM_BIN:-}"
+if [[ -z "${STEAM_BIN}" ]]; then
+    if [[ -x "${SDMED_HOME}/.local/share/Steam/ubuntu12_32/steam" ]]; then
+        STEAM_BIN="${SDMED_HOME}/.local/share/Steam/ubuntu12_32/steam"
+    elif [[ -x "${SDMED_HOME}/.steam/root/ubuntu12_32/steam" ]]; then
+        STEAM_BIN="${SDMED_HOME}/.steam/root/ubuntu12_32/steam"
+    else
+        STEAM_BIN=""
+    fi
+fi
+# --- end minimal user config ---
 
 # Shared between this and the auto-mount script to ensure we're not double-triggering nor automounting while formatting
 # or vice-versa.
@@ -49,11 +75,16 @@ send_steam_url()
 {
   local command="$1"
   local arg="$2"
-  local encoded=$(urlencode "$arg")
+  local encoded
+  encoded=$(urlencode "$arg")
   if pgrep -x "steam" > /dev/null; then
       # TODO use -ifrunning and check return value - if there was a steam process and it returns -1, the message wasn't sent
       # need to retry until either steam process is gone or -ifrunning returns 0, or timeout i guess
-      systemd-run -M 1000@ --user --collect --wait sh -c "./.steam/root/ubuntu12_32/steam steam://${command}/${encoded@Q}"
+      if [[ -z "${STEAM_BIN}" ]]; then
+          echo "Could not send steam URL steam://${command}/${arg} (steam://${command}/${encoded}) -- Steam binary not found"
+          return 0
+      fi
+      systemd-run -M "${SDMED_UID}@"" --user --collect --wait sh -c "${STEAM_BIN@Q} steam://${command}/${encoded@Q}"
       echo "Sent URL to steam: steam://${command}/${arg} (steam://${command}/${encoded})"
   else
       echo "Could not send steam URL steam://${command}/${arg} (steam://${command}/${encoded}) -- steam not running"
@@ -125,7 +156,7 @@ do_mount()
                 /org/freedesktop/UDisks2/block_devices/"${DEVBASE}"                                \
                 org.freedesktop.UDisks2.Filesystem                                                 \
                 Mount 'a{sv}' 3                                                                    \
-                  as-user s deck                                                                   \
+                  as-user s "${SDMED_USER}"                                                        \
                   auth.no_user_interaction b true                                                  \
                   options                  s "$OPTS") || ret=$?
 
@@ -172,7 +203,7 @@ do_mount()
     else
         #TODO check permissions are 1000  when creating new SteamLibrary
         mkdir -p "${mount_point}/SteamLibrary"
-        chown deck:deck "${mount_point}/SteamLibrary"
+        chown "${SDMED_USER}:${SDMED_USER}" "${mount_point}/SteamLibrary"
         send_steam_url "addlibraryfolder" "${mount_point}/SteamLibrary"
     fi
 }

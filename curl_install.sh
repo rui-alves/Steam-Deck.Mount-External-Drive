@@ -1,33 +1,38 @@
 #!/bin/bash
 #Steam Deck Mount External Drive by scawp
 #License: DBAD: https://github.com/scawp/Steam-Deck.Mount-External-Drive/blob/main/LICENSE.md
-#Source: https://github.com/scawp/Steam-Deck.Mount-External-Drive
+#Source: https://github.com/rui-alves/Steam-Deck.Mount-External-Drive
 # Use at own Risk!
 
-#curl -sSL https://raw.githubusercontent.com/scawp/Steam-Deck.Mount-External-Drive/main/curl_install.sh | bash
+#curl -sSL https://raw.githubusercontent.com/rui-alves/Steam-Deck.Mount-External-Drive/main/curl_install.sh | bash
 
 #stop running script if anything returns an error (non-zero exit )
 set -e
 
-repo_url="https://raw.githubusercontent.com/scawp/Steam-Deck.Mount-External-Drive/main"
+repo_url="https://raw.githubusercontent.com/rui-alves/Steam-Deck.Mount-External-Drive/main"
 repo_lib_dir="$repo_url/lib"
 
 tmp_dir="/tmp/scawp.SDMED.install"
 
 rules_install_dir="/etc/udev/rules.d"
 service_install_dir="/etc/systemd/system"
-script_install_dir="/home/deck/.local/share/scawp/SDMED"
+
+# CHANGED: install globally instead of /home/deck/.local/share/...
+script_install_dir="/usr/local/lib/scawp/SDMED"
 
 device_name="$(uname --nodename)"
-user="$(id -u deck)"
+user_uid="$(id -u)"
 
-if [ "$device_name" != "steamdeck" ] || [ "$user" != "1000" ]; then
-  zenity --question --width=400 \
-  --text="This code has been written specifically for the Steam Deck with user Deck \
+# CHANGED: remove hard dependency on user "deck" (non-SteamDeck systems won't have it)
+# Keep a safety prompt when not on a stock Steam Deck (steamdeck hostname + UID 1000)
+if [ "$device_name" != "steamdeck" ] || [ "$user_uid" != "1000" ]; then
+  zenity --question --width=450 \
+  --text="This code was originally written for Steam Deck (hostname: steamdeck, user UID: 1000). \
   \nIt appears you are running on a different system/non-standard configuration. \
+  \nThis fork installs SDMED globally at: $script_install_dir \
   \nAre you sure you want to continue?"
   if [ "$?" != 0 ]; then
-    #NOTE: This code will never be reached due to "set -e", the system will already exit for us but just incase keep this
+    #NOTE: This code will never be reached due to \"set -e\", the system will already exit for us but just incase keep this
     echo "bye then! xxx"
     exit 1;
   fi
@@ -52,13 +57,13 @@ function install_automount () {
   curl -o "$tmp_dir/99-steamos-automount.rules" "$repo_lib_dir/99-steamos-automount.rules"
 
   echo "Making script folder $script_install_dir"
-  mkdir -p "$script_install_dir"
+  sudo mkdir -p "$script_install_dir"
 
   echo "Copying $tmp_dir/automount.sh to $script_install_dir/automount.sh"
   sudo cp "$tmp_dir/automount.sh" "$script_install_dir/automount.sh"
 
   echo "Adding Execute and Removing Write Permissions"
-  sudo chmod 555 $script_install_dir/automount.sh
+  sudo chmod 555 "$script_install_dir/automount.sh"
 
   echo "Copying $tmp_dir/99-steamos-automount.rules to $rules_install_dir/99-steamos-automount.rules"
   sudo cp "$tmp_dir/99-steamos-automount.rules" "$rules_install_dir/99-steamos-automount.rules"
@@ -74,6 +79,10 @@ function install_automount () {
 
   echo "Copying $tmp_dir/external-drive-mount@.service to $service_install_dir/external-drive-mount@.service"
   sudo cp "$tmp_dir/external-drive-mount@.service" "$service_install_dir/external-drive-mount@.service"
+
+  # NEW (minimal robustness): ensure udisks2 is enabled on distros where it's not preset-enabled
+  echo "Enabling udisks2 (required for automount)"
+  sudo systemctl enable --now udisks2.service || true
 
   echo "Reloading Services"
   sudo udevadm control --reload

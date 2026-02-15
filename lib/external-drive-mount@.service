@@ -4,9 +4,13 @@
 
 [Unit]
 Description=Mount External Drive on %i
+After=local-fs.target
 
 [Service]
 Type=oneshot
-RemainAfterExit=true
-ExecStart=/home/deck/.local/share/scawp/SDMED/automount.sh add %i
-ExecStop=/home/deck/.local/share/scawp/SDMED/automount.sh remove %i
+RemainAfterExit=yes
+ExecStart=/usr/local/lib/scawp/SDMED/automount.sh add %i
+ExecStop=/usr/local/lib/scawp/SDMED/automount.sh remove %i
+
+[Install]
+WantedBy=multi-user.target
