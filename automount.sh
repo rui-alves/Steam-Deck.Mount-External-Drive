@@ -83,7 +83,7 @@ send_steam_url()
           echo "Could not send steam URL steam://${command}/${arg} (steam://${command}/${encoded}) -- Steam binary not found"
           return 0
       fi
-      systemd-run -M "${SDMED_UID}@"" --user --collect --wait sh -c "${STEAM_BIN@Q} steam://${command}/${encoded@Q}"
+      systemd-run -M "${SDMED_UID}@" --user --collect --wait sh -c "${STEAM_BIN@Q} steam://${command}/${encoded@Q}"
       echo "Sent URL to steam: steam://${command}/${arg} (steam://${command}/${encoded})"
   else
       echo "Could not send steam URL steam://${command}/${arg} (steam://${command}/${encoded}) -- steam not running"
